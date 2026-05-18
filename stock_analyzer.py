@@ -1507,4 +1507,545 @@ def score_valuation(valuation_df):
         "pe_score": pe_score,
         "pb_score": pb_score
     }
+    
+# ==================================================
+# 完整整合分析
+# 技術面 + 月營收 + 獲利品質 + 估值 + 三大法人
+# ==================================================
+
+def get_final_viewpoint(total_score):
+    """
+    根據總分判斷中長線觀點。
+    """
+
+    if total_score >= 80:
+        return "強勢偏多"
+    elif total_score >= 70:
+        return "偏多"
+    elif total_score >= 60:
+        return "中性偏多"
+    elif total_score >= 45:
+        return "中性觀察"
+    else:
+        return "偏空"
+
+
+def get_final_conclusion(total_score):
+    """
+    根據總分產生中長線結論。
+    """
+
+    if total_score >= 80:
+        return (
+            "此股目前在技術面、營收成長、獲利品質、估值與籌碼面整體表現強，"
+            "屬於中長線強勢偏多標的。不過若短線漲幅已大，仍需避免追高，"
+            "較適合等待回檔或整理後再評估。"
+        )
+
+    elif total_score >= 70:
+        return (
+            "此股目前中長線條件偏多，代表基本面或技術面具備一定支撐，"
+            "適合列入觀察名單。若股價能守穩 60 日與 120 日均線，"
+            "且營收與 EPS 未轉弱，中長線仍可持續追蹤。"
+        )
+
+    elif total_score >= 60:
+        return (
+            "此股具備部分中長線條件，但尚未達到明確強勢。"
+            "建議持續觀察營收成長、EPS、法人籌碼與股價是否站穩中長期均線。"
+        )
+
+    elif total_score >= 45:
+        return (
+            "此股目前屬於中性觀察，尚未出現明確中長線優勢。"
+            "若基本面、籌碼或技術面未改善，建議先保守看待。"
+        )
+
+    else:
+        return (
+            "此股目前中長線條件偏弱，可能存在技術面轉弱、成長不足、"
+            "獲利品質不佳、估值偏高或法人籌碼偏空等問題，建議保守看待。"
+        )
+
+
+def safe_date_to_str(value, fmt="%Y-%m-%d"):
+    """
+    日期安全轉字串。
+    """
+
+    try:
+        if value is None or pd.isna(value):
+            return "無資料"
+
+        if hasattr(value, "strftime"):
+            return value.strftime(fmt)
+
+        return str(value)
+
+    except Exception:
+        return "無資料"
+
+
+def details_to_text(details):
+    """
+    條件檢查清單轉文字。
+    """
+
+    if not details:
+        return "無資料"
+
+    lines = []
+
+    for i, detail in enumerate(details, start=1):
+        lines.append(f"{i}. {detail}")
+
+    return "\n".join(lines)
+
+
+def build_full_report(result):
+    """
+    將分析結果組成文字報告。
+    """
+
+    stock_id = result["stock_id"]
+    stock_name = result["stock_name"]
+    market = result["market"]
+    symbol = result["symbol"]
+    total_score = result["total_score"]
+    viewpoint = result["viewpoint"]
+    scores = result["scores"]
+    metrics = result["metrics"]
+    details = result["details"]
+    errors = result["errors"]
+    conclusion = result["conclusion"]
+
+    report = f"""
+==================================================
+台股中長線 AI 股票分析報告
+完整版本：技術面 + 基本面 + 估值 + 籌碼
+==================================================
+
+股票代號：{symbol}
+股票名稱：{stock_name if stock_name else "無資料"}
+市場：{market_name_zh(market)}
+分析週期：3 到 6 個月
+報告產生時間：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+--------------------------------------------------
+一、總分與中長線觀點
+--------------------------------------------------
+
+技術面分數：{fmt_num(scores["technical"], 1)} / 25
+月營收成長分數：{fmt_num(scores["revenue"], 1)} / 15
+獲利品質分數：{fmt_num(scores["profit_quality"], 1)} / 25
+估值合理性分數：{fmt_num(scores["valuation"], 1)} / 15
+三大法人籌碼分數：{fmt_num(scores["institutional"], 1)} / 20
+
+整合總分：{fmt_num(total_score, 1)} / 100
+中長線觀點：{viewpoint}
+
+--------------------------------------------------
+二、技術面分析
+--------------------------------------------------
+
+目前收盤價：{fmt_num(metrics["close"])}
+20 日均線：{fmt_num(metrics["ma20"])}
+60 日均線：{fmt_num(metrics["ma60"])}
+120 日均線：{fmt_num(metrics["ma120"])}
+240 日均線：{fmt_num(metrics["ma240"])}
+RSI 14：{fmt_num(metrics["rsi"])}
+MACD：{fmt_num(metrics["macd"])}
+MACD Signal：{fmt_num(metrics["macd_signal"])}
+近 20 日漲跌幅：{fmt_pct(metrics["ret20"])}
+近 60 日漲跌幅：{fmt_pct(metrics["ret60"])}
+近 120 日漲跌幅：{fmt_pct(metrics["ret120"])}
+股價距離 120 日均線：{fmt_pct(metrics["distance_ma120"])}
+距離近 120 日高點回落：{fmt_pct(metrics["drawdown_from_high"])}
+
+技術面條件檢查：
+{details_to_text(details["technical"])}
+
+--------------------------------------------------
+三、月營收成長動能
+--------------------------------------------------
+
+最新營收月份：{metrics["revenue_period"]}
+最新月營收年增率：{fmt_pct(metrics["revenue_yoy"])}
+最新月營收月增率：{fmt_pct(metrics["revenue_mom"])}
+近 3 個月平均年增率：{fmt_pct(metrics["revenue_avg_3m_yoy"])}
+近 6 個月平均年增率：{fmt_pct(metrics["revenue_avg_6m_yoy"])}
+
+月營收條件檢查：
+{details_to_text(details["revenue"])}
+
+--------------------------------------------------
+四、獲利品質
+EPS + ROE + 毛利率 + 營業利益率
+--------------------------------------------------
+
+最新財報日期：{metrics["profit_date"]}
+最新 EPS：{fmt_num(metrics["eps"])}
+EPS 年增率：{fmt_pct(metrics["eps_yoy"])}
+近四季 EPS 加總 TTM：{fmt_num(metrics["ttm_eps"])}
+TTM EPS 年增率：{fmt_pct(metrics["ttm_eps_yoy"])}
+ROE：{fmt_pct(metrics["roe"])}
+毛利率：{fmt_pct(metrics["gross_margin"])}
+營業利益率：{fmt_pct(metrics["operating_margin"])}
+
+獲利品質條件檢查：
+{details_to_text(details["profit_quality"])}
+
+--------------------------------------------------
+五、估值合理性
+P/E + P/B + 殖利率
+--------------------------------------------------
+
+最新估值日期：{metrics["valuation_date"]}
+本益比 P/E：{fmt_num(metrics["pe"])}
+P/E 歷史百分位：{fmt_pct(metrics["pe_percentile"])}
+P/E 近 1 年平均：{fmt_num(metrics["pe_1y_avg"])}
+股價淨值比 P/B：{fmt_num(metrics["pb"])}
+P/B 歷史百分位：{fmt_pct(metrics["pb_percentile"])}
+P/B 近 1 年平均：{fmt_num(metrics["pb_1y_avg"])}
+殖利率：{fmt_pct(metrics["dividend_yield"])}
+
+估值條件檢查：
+{details_to_text(details["valuation"])}
+
+--------------------------------------------------
+六、三大法人籌碼
+外資 + 投信 + 自營商
+--------------------------------------------------
+
+最新籌碼日期：{metrics["institutional_date"]}
+外資當日買賣超：{fmt_int(metrics["foreign_net"])}
+投信當日買賣超：{fmt_int(metrics["investment_trust_net"])}
+自營商當日買賣超：{fmt_int(metrics["dealer_net"])}
+三大法人當日合計：{fmt_int(metrics["institutional_total_net"])}
+近 5 日三大法人合計：{fmt_int(metrics["institutional_total_5d"])}
+近 20 日三大法人合計：{fmt_int(metrics["institutional_total_20d"])}
+近 60 日三大法人合計：{fmt_int(metrics["institutional_total_60d"])}
+近 20 日外資合計：{fmt_int(metrics["foreign_20d"])}
+近 20 日投信合計：{fmt_int(metrics["investment_trust_20d"])}
+近 20 日三大法人買超天數：{fmt_num(metrics["institutional_positive_20d_count"], 0)} 天
+
+三大法人條件檢查：
+{details_to_text(details["institutional"])}
+
+--------------------------------------------------
+七、AI 中長線結論
+--------------------------------------------------
+
+{conclusion}
+
+觀察重點：
+1. 若股價持續站穩 60 日與 120 日均線，中長線趨勢較有利。
+2. 若月營收年增率持續為正，代表公司近期營運動能仍在。
+3. 若 EPS、ROE、毛利率與營業利益率維持穩定，代表公司體質較佳。
+4. 若 P/E 或 P/B 位於歷史高檔，即使基本面好，也要留意估值風險。
+5. 若外資、投信與三大法人持續買超，通常對中期籌碼較有支撐。
+6. 若股價跌破 120 日均線，且營收或 EPS 轉弱，需重新評估。
+
+風險提醒：
+本分析僅供研究參考，不構成任何投資建議。
+資料來源可能有延遲、缺漏或 API 限制，投資前仍需自行查證。
+"""
+
+    if errors:
+        report += """
+
+--------------------------------------------------
+八、資料缺漏或錯誤提醒
+--------------------------------------------------
+"""
+
+        for key, value in errors.items():
+            report += f"\n- {key}：{value}"
+
+    report += """
+
+==================================================
+"""
+
+    return report
+
+
+def analyze_stock(stock_input):
+    """
+    單檔台股完整分析主函數。
+
+    支援：
+    1. 上市股票
+    2. 上櫃股票
+    3. 興櫃股票
+    4. 股票代號
+    5. 股票名稱
+
+    回傳：
+    dict，包含總分、觀點、各項分數、指標、文字報告與原始資料表。
+    """
+
+    info = resolve_stock_input(stock_input)
+
+    stock_id = info["stock_id"]
+    stock_name = info["stock_name"]
+    market = info["market"]
+    symbol = format_tw_stock_code(stock_id)
+
+    errors = {}
+
+    # ==================================================
+    # 預設結果
+    # ==================================================
+
+    tech_score = 0
+    revenue_score = 0
+    profit_score = 0
+    valuation_score = 0
+    institutional_score = 0
+
+    tech_details = ["技術面資料不足或分析失敗"]
+    revenue_details = ["月營收資料不足或分析失敗"]
+    profit_details = ["獲利品質資料不足或分析失敗"]
+    valuation_details = ["估值資料不足或分析失敗"]
+    institutional_details = ["三大法人資料不足或分析失敗"]
+
+    price_df = None
+    revenue_df = None
+    profit_df = None
+    valuation_df = None
+    institutional_df = None
+
+    raw_financial_df = None
+    raw_institutional_df = None
+
+    latest_price = None
+    latest_revenue = None
+    latest_profit = None
+    latest_valuation = None
+    latest_institutional = None
+
+    distance_ma120 = np.nan
+    drawdown_from_high = np.nan
+
+    # ==================================================
+    # 1. 技術面
+    # ==================================================
+
+    try:
+        symbol, price_df = fetch_stock_data(stock_id)
+        price_df = add_indicators(price_df)
+        tech_result = score_stock_technical(price_df)
+
+        tech_raw_score = tech_result["score"]
+        tech_score = round(tech_raw_score * 0.25, 1)
+
+        tech_details = tech_result.get("details", [])
+        latest_price = tech_result.get("latest")
+        distance_ma120 = tech_result.get("distance_ma120", np.nan)
+        drawdown_from_high = tech_result.get("drawdown_from_high", np.nan)
+
+    except Exception as e:
+        errors["技術面"] = str(e)
+
+    # ==================================================
+    # 2. 月營收
+    # ==================================================
+
+    try:
+        revenue_df = fetch_monthly_revenue(stock_id)
+        revenue_result = score_monthly_revenue(revenue_df)
+
+        revenue_score = revenue_result["score"]
+        revenue_details = revenue_result.get("details", [])
+        latest_revenue = revenue_result.get("latest")
+
+    except Exception as e:
+        errors["月營收"] = str(e)
+
+    # ==================================================
+    # 3. 獲利品質
+    # ==================================================
+
+    try:
+        profit_df, raw_financial_df = build_profitability_table(stock_id)
+        profit_result = score_profit_quality(profit_df)
+
+        profit_score = profit_result["score"]
+        profit_details = profit_result.get("details", [])
+        latest_profit = profit_result.get("latest")
+
+    except Exception as e:
+        errors["獲利品質"] = str(e)
+
+    # ==================================================
+    # 4. 估值
+    # ==================================================
+
+    try:
+        valuation_df = fetch_valuation_data(stock_id)
+        valuation_result = score_valuation(valuation_df)
+
+        valuation_score = valuation_result["score"]
+        valuation_details = valuation_result.get("details", [])
+        latest_valuation = valuation_result.get("latest")
+
+    except Exception as e:
+        errors["估值"] = str(e)
+
+    # ==================================================
+    # 5. 三大法人
+    # ==================================================
+
+    try:
+        institutional_df, raw_institutional_df = build_institutional_table(stock_id)
+        institutional_result = score_institutional(institutional_df)
+
+        institutional_score = institutional_result["score"]
+        institutional_details = institutional_result.get("details", [])
+        latest_institutional = institutional_result.get("latest")
+
+    except Exception as e:
+        errors["三大法人"] = str(e)
+
+    # ==================================================
+    # 6. 總分
+    # ==================================================
+
+    total_score = round(
+        tech_score
+        + revenue_score
+        + profit_score
+        + valuation_score
+        + institutional_score,
+        1
+    )
+
+    viewpoint = get_final_viewpoint(total_score)
+    conclusion = get_final_conclusion(total_score)
+
+    # ==================================================
+    # 7. 指標整理
+    # ==================================================
+
+    metrics = {
+        # 技術面
+        "close": safe_get(latest_price, "Close"),
+        "ma20": safe_get(latest_price, "MA20"),
+        "ma60": safe_get(latest_price, "MA60"),
+        "ma120": safe_get(latest_price, "MA120"),
+        "ma240": safe_get(latest_price, "MA240"),
+        "rsi": safe_get(latest_price, "RSI14"),
+        "macd": safe_get(latest_price, "MACD"),
+        "macd_signal": safe_get(latest_price, "MACD_SIGNAL"),
+        "ret20": safe_get(latest_price, "RET20"),
+        "ret60": safe_get(latest_price, "RET60"),
+        "ret120": safe_get(latest_price, "RET120"),
+        "distance_ma120": distance_ma120,
+        "drawdown_from_high": drawdown_from_high,
+
+        # 月營收
+        "revenue_period": (
+            safe_date_to_str(safe_get(latest_revenue, "period"), "%Y-%m")
+            if latest_revenue is not None else "無資料"
+        ),
+        "revenue_yoy": safe_get(latest_revenue, "yoy_pct"),
+        "revenue_mom": safe_get(latest_revenue, "mom_pct"),
+        "revenue_avg_3m_yoy": safe_get(latest_revenue, "avg_3m_yoy"),
+        "revenue_avg_6m_yoy": safe_get(latest_revenue, "avg_6m_yoy"),
+
+        # 獲利品質
+        "profit_date": (
+            safe_date_to_str(safe_get(latest_profit, "date"), "%Y-%m-%d")
+            if latest_profit is not None else "無資料"
+        ),
+        "eps": safe_get(latest_profit, "eps"),
+        "eps_yoy": safe_get(latest_profit, "eps_yoy_pct"),
+        "ttm_eps": safe_get(latest_profit, "ttm_eps"),
+        "ttm_eps_yoy": safe_get(latest_profit, "ttm_eps_yoy_pct"),
+        "roe": safe_get(latest_profit, "roe"),
+        "gross_margin": safe_get(latest_profit, "gross_margin"),
+        "operating_margin": safe_get(latest_profit, "operating_margin"),
+
+        # 估值
+        "valuation_date": (
+            safe_date_to_str(safe_get(latest_valuation, "date"), "%Y-%m-%d")
+            if latest_valuation is not None else "無資料"
+        ),
+        "pe": safe_get(latest_valuation, "PER"),
+        "pe_percentile": safe_get(latest_valuation, "PER_percentile"),
+        "pe_1y_avg": safe_get(latest_valuation, "PER_1y_avg"),
+        "pb": safe_get(latest_valuation, "PBR"),
+        "pb_percentile": safe_get(latest_valuation, "PBR_percentile"),
+        "pb_1y_avg": safe_get(latest_valuation, "PBR_1y_avg"),
+        "dividend_yield": safe_get(latest_valuation, "dividend_yield"),
+
+        # 三大法人
+        "institutional_date": (
+            safe_date_to_str(safe_get(latest_institutional, "date"), "%Y-%m-%d")
+            if latest_institutional is not None else "無資料"
+        ),
+        "foreign_net": safe_get(latest_institutional, "foreign_net"),
+        "investment_trust_net": safe_get(latest_institutional, "investment_trust_net"),
+        "dealer_net": safe_get(latest_institutional, "dealer_net"),
+        "institutional_total_net": safe_get(latest_institutional, "total_net"),
+        "institutional_total_5d": safe_get(latest_institutional, "total_5d"),
+        "institutional_total_20d": safe_get(latest_institutional, "total_20d"),
+        "institutional_total_60d": safe_get(latest_institutional, "total_60d"),
+        "foreign_20d": safe_get(latest_institutional, "foreign_20d"),
+        "investment_trust_20d": safe_get(latest_institutional, "investment_trust_20d"),
+        "institutional_positive_20d_count": safe_get(
+            latest_institutional,
+            "total_positive_20d_count"
+        ),
+    }
+
+    result = {
+        "stock_id": stock_id,
+        "stock_name": stock_name,
+        "market": market,
+        "symbol": symbol,
+        "total_score": total_score,
+        "viewpoint": viewpoint,
+        "conclusion": conclusion,
+        "scores": {
+            "technical": tech_score,
+            "revenue": revenue_score,
+            "profit_quality": profit_score,
+            "valuation": valuation_score,
+            "institutional": institutional_score,
+        },
+        "metrics": metrics,
+        "details": {
+            "technical": tech_details,
+            "revenue": revenue_details,
+            "profit_quality": profit_details,
+            "valuation": valuation_details,
+            "institutional": institutional_details,
+        },
+        "errors": errors,
+        "data": {
+            "price_df": price_df,
+            "revenue_df": revenue_df,
+            "profit_df": profit_df,
+            "valuation_df": valuation_df,
+            "institutional_df": institutional_df,
+            "raw_financial_df": raw_financial_df,
+            "raw_institutional_df": raw_institutional_df,
+        }
+    }
+
+    result["report"] = build_full_report(result)
+
+    return result
+
+
+# 常用別名
+def analyze_any_tw_stock(stock_input):
+    return analyze_stock(stock_input)
+
+
+def analyze(stock_input):
+    return analyze_stock(stock_input)
+
 
