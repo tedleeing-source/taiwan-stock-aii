@@ -2045,7 +2045,248 @@ def analyze_any_tw_stock(stock_input):
     return analyze_stock(stock_input)
 
 
+
+
 def analyze(stock_input):
     return analyze_stock(stock_input)
 
 
+
+
+# ==================================================
+# 三大法人籌碼分析補丁版
+# 外資 + 投信 + 自營商
+# ==================================================
+
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+
+
+def fetch_institutional_data(stock_input, years=1):
+    """
+    從 FinMind 抓取三大法人買賣超資料。
+    """
+
+    info = resolve_stock_input(stock_input)
+    stock_id = info["stock_id"]
+
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=365 * years)
+
+    df = finmind_get(
+        dataset="TaiwanStockInstitutionalInvestorsBuySell",
+        stock_code=stock_id,
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d")
+    )
+
+    df["date"] = pd.to_datetime(df["date"])
+
+    if "buy" not in df.columns:
+        df["buy"] = 0
+
+    if "sell" not in df.columns:
+        df["sell"] = 0
+
+    if "name" not in df.columns:
+        df["name"] = "Unknown"
+
+    df["buy"] = pd.to_numeric(df["buy"], errors="coerce").fillna(0)
+    df["sell"] = pd.to_numeric(df["sell"], errors="coerce").fillna(0)
+
+    df["net_buy"] = df["buy"] - df["sell"]
+
+    return df
+
+
+def classify_institution_name(name):
+    """
+    將 FinMind 法人名稱分類：
+    foreign：外資
+    investment_trust：投信
+    dealer：自營商
+    other：其他
+    """
+
+    text = str(name).lower()
+
+    if (
+        "foreign" in text
+        or "外資" in text
+        or "foreign_investor" in text
+    ):
+        return "foreign"
+
+    if (
+        "investment" in text
+        or "trust" in text
+        or "投信" in text
+        or "investment_trust" in text
+    ):
+        return "investment_trust"
+
+    if (
+        "dealer" in text
+        or "自營商" in text
+        or "dealer_self" in text
+        or "dealer_hedging" in text
+    ):
+        return "dealer"
+
+    return "other"
+
+
+def build_institutional_table(stock_input):
+    """
+    建立三大法人籌碼分析表。
+    """
+
+    raw_df = fetch_institutional_data(stock_input)
+
+    raw_df["institution_type"] = raw_df["name"].apply(classify_institution_name)
+
+    pivot_df = raw_df.pivot_table(
+        index="date",
+        columns="institution_type",
+        values="net_buy",
+        aggfunc="sum"
+    ).fillna(0)
+
+    for col in ["foreign", "investment_trust", "dealer", "other"]:
+        if col not in pivot_df.columns:
+            pivot_df[col] = 0
+
+    pivot_df = pivot_df.sort_index()
+
+    pivot_df["foreign_net"] = pivot_df["foreign"]
+    pivot_df["investment_trust_net"] = pivot_df["investment_trust"]
+    pivot_df["dealer_net"] = pivot_df["dealer"]
+
+    pivot_df["total_net"] = (
+        pivot_df["foreign_net"]
+        + pivot_df["investment_trust_net"]
+        + pivot_df["dealer_net"]
+    )
+
+    for window in [5, 20, 60]:
+        pivot_df[f"foreign_{window}d"] = pivot_df["foreign_net"].rolling(window).sum()
+        pivot_df[f"investment_trust_{window}d"] = pivot_df["investment_trust_net"].rolling(window).sum()
+        pivot_df[f"dealer_{window}d"] = pivot_df["dealer_net"].rolling(window).sum()
+        pivot_df[f"total_{window}d"] = pivot_df["total_net"].rolling(window).sum()
+
+    pivot_df["total_positive_day"] = (pivot_df["total_net"] > 0).astype(int)
+    pivot_df["foreign_positive_day"] = (pivot_df["foreign_net"] > 0).astype(int)
+    pivot_df["investment_trust_positive_day"] = (
+        pivot_df["investment_trust_net"] > 0
+    ).astype(int)
+
+    pivot_df["total_positive_20d_count"] = (
+        pivot_df["total_positive_day"].rolling(20).sum()
+    )
+
+    pivot_df["foreign_positive_20d_count"] = (
+        pivot_df["foreign_positive_day"].rolling(20).sum()
+    )
+
+    pivot_df["investment_trust_positive_20d_count"] = (
+        pivot_df["investment_trust_positive_day"].rolling(20).sum()
+    )
+
+    inst_df = pivot_df.reset_index()
+
+    return inst_df, raw_df
+
+
+def score_institutional(inst_df):
+    """
+    三大法人籌碼評分。
+    滿分 20 分。
+    """
+
+    clean_df = inst_df.copy()
+    clean_df = clean_df.dropna(subset=["total_net"], how="all")
+
+    if clean_df.empty:
+        return {
+            "score": 0,
+            "details": ["三大法人資料不足，無法分析籌碼"],
+            "latest": None
+        }
+
+    latest = clean_df.iloc[-1]
+
+    score = 0
+    details = []
+
+    total_5d = latest.get("total_5d", np.nan)
+    total_20d = latest.get("total_20d", np.nan)
+    total_60d = latest.get("total_60d", np.nan)
+
+    foreign_20d = latest.get("foreign_20d", np.nan)
+    investment_trust_20d = latest.get("investment_trust_20d", np.nan)
+
+    total_positive_20d_count = latest.get("total_positive_20d_count", np.nan)
+
+    if pd.notna(total_5d):
+        if total_5d > 0:
+            score += 4
+            details.append("近 5 日三大法人合計買超，短期籌碼偏多")
+        else:
+            details.append("近 5 日三大法人合計賣超，短期籌碼偏弱")
+    else:
+        details.append("近 5 日三大法人資料不足")
+
+    if pd.notna(total_20d):
+        if total_20d > 0:
+            score += 5
+            details.append("近 20 日三大法人合計買超，中期籌碼偏多")
+        else:
+            details.append("近 20 日三大法人合計賣超，中期籌碼偏弱")
+    else:
+        details.append("近 20 日三大法人資料不足")
+
+    if pd.notna(total_60d):
+        if total_60d > 0:
+            score += 3
+            details.append("近 60 日三大法人合計買超，中長期籌碼有支撐")
+        else:
+            details.append("近 60 日三大法人合計賣超，中長期籌碼支撐不足")
+    else:
+        details.append("近 60 日三大法人資料不足")
+
+    if pd.notna(investment_trust_20d):
+        if investment_trust_20d > 0:
+            score += 4
+            details.append("近 20 日投信買超，對中期波段通常較有支撐")
+        else:
+            details.append("近 20 日投信未明顯買超，中期籌碼支撐需觀察")
+    else:
+        details.append("近 20 日投信資料不足")
+
+    if pd.notna(foreign_20d):
+        if foreign_20d > 0:
+            score += 2
+            details.append("近 20 日外資買超，外資籌碼偏多")
+        else:
+            details.append("近 20 日外資賣超，外資籌碼偏保守")
+    else:
+        details.append("近 20 日外資資料不足")
+
+    if pd.notna(total_positive_20d_count):
+        if total_positive_20d_count >= 12:
+            score += 2
+            details.append("近 20 日三大法人買超天數達 12 天以上，籌碼穩定偏多")
+        elif total_positive_20d_count >= 10:
+            score += 1
+            details.append("近 20 日三大法人買超天數約半數，籌碼中性偏多")
+        else:
+            details.append("近 20 日三大法人買超天數偏少，籌碼穩定性不足")
+    else:
+        details.append("近 20 日法人買超天數資料不足")
+
+    return {
+        "score": min(score, 20),
+        "details": details,
+        "latest": latest
+    }
