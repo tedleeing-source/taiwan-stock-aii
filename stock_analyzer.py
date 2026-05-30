@@ -2279,6 +2279,7 @@ def score_institutional(inst_df):
             details.append("近 20 日三大法人買超天數達 12 天以上，籌碼穩定偏多")
         elif total_positive_20d_count >= 10:
             score += 1
+            
             details.append("近 20 日三大法人買超天數約半數，籌碼中性偏多")
         else:
             details.append("近 20 日三大法人買超天數偏少，籌碼穩定性不足")
@@ -2290,3 +2291,637 @@ def score_institutional(inst_df):
         "details": details,
         "latest": latest
     }
+
+
+# ==================================================
+# 短中期 1 個月分析
+# 技術趨勢 + 動能 + 量價 + 籌碼 + 風險
+# ==================================================
+
+def get_short_term_viewpoint(total_score):
+    """
+    短中期 1 個月觀點。
+    """
+
+    if total_score >= 80:
+        return "短中期強勢偏多"
+    elif total_score >= 70:
+        return "短中期偏多"
+    elif total_score >= 60:
+        return "短中期中性偏多"
+    elif total_score >= 45:
+        return "短中期中性觀察"
+    else:
+        return "短中期偏空"
+
+
+def get_short_term_conclusion(total_score):
+    """
+    根據短中期分數產生結論。
+    """
+
+    if total_score >= 80:
+        return (
+            "此股目前短中期技術趨勢、動能、量價與籌碼整體偏強，"
+            "1 個月內屬於強勢偏多觀察標的。不過若 RSI 過熱或股價大幅遠離短期均線，"
+            "仍需避免追高。"
+        )
+
+    elif total_score >= 70:
+        return (
+            "此股目前短中期條件偏多，股價與動能具備一定支撐。"
+            "若能持續站穩 20 日均線，且量能不明顯萎縮，1 個月內仍可持續觀察。"
+        )
+
+    elif total_score >= 60:
+        return (
+            "此股具備部分短中期優勢，但尚未完全強勢。"
+            "建議觀察股價是否站穩 20 日均線、MACD 是否延續多方，以及法人籌碼是否改善。"
+        )
+
+    elif total_score >= 45:
+        return (
+            "此股目前屬於短中期中性觀察，尚未出現明確方向。"
+            "建議等待突破、放量或站穩短期均線後再評估。"
+        )
+
+    else:
+        return (
+            "此股目前短中期條件偏弱，可能存在股價跌破短期均線、動能不足、量能不佳或籌碼偏弱等問題，"
+            "建議保守看待。"
+        )
+
+
+def add_short_term_indicators(df):
+    """
+    新增短中期 1 個月會用到的指標。
+    """
+
+    df = df.copy()
+
+    if "MA20" not in df.columns:
+        df["MA20"] = df["Close"].rolling(window=20).mean()
+
+    if "MA60" not in df.columns:
+        df["MA60"] = df["Close"].rolling(window=60).mean()
+
+    if "RSI14" not in df.columns:
+        df["RSI14"] = calculate_rsi(df["Close"], 14)
+
+    if "MACD" not in df.columns or "MACD_SIGNAL" not in df.columns:
+        df["MACD"], df["MACD_SIGNAL"], df["MACD_HIST"] = calculate_macd(df["Close"])
+
+    df["MA5"] = df["Close"].rolling(window=5).mean()
+    df["MA10"] = df["Close"].rolling(window=10).mean()
+
+    df["VOL5"] = df["Volume"].rolling(window=5).mean()
+    df["VOL20"] = df["Volume"].rolling(window=20).mean()
+
+    df["RET5"] = df["Close"].pct_change(5) * 100
+    df["RET20"] = df["Close"].pct_change(20) * 100
+
+    df["HIGH20"] = df["High"].rolling(window=20).max()
+    df["LOW20"] = df["Low"].rolling(window=20).min()
+
+    df["MA20_SLOPE_5D"] = df["MA20"] - df["MA20"].shift(5)
+
+    return df
+
+
+def score_short_term_price(df):
+    """
+    短中期 1 個月價格與技術評分。
+    滿分 85 分。
+
+    分數組成：
+    1. 技術趨勢：35 分
+    2. 動能指標：20 分
+    3. 量價結構：20 分
+    4. 風險控管：10 分
+    """
+
+    clean_df = df.dropna()
+
+    if len(clean_df) < 30:
+        return {
+            "score": 0,
+            "trend_score": 0,
+            "momentum_score": 0,
+            "volume_score": 0,
+            "risk_score": 0,
+            "details": ["短中期技術資料不足，無法分析"],
+            "latest": None
+        }
+
+    latest = clean_df.iloc[-1]
+
+    close = latest["Close"]
+    ma5 = latest["MA5"]
+    ma10 = latest["MA10"]
+    ma20 = latest["MA20"]
+    ma60 = latest["MA60"]
+
+    rsi = latest["RSI14"]
+    macd = latest["MACD"]
+    signal = latest["MACD_SIGNAL"]
+    hist = latest["MACD_HIST"]
+
+    volume = latest["Volume"]
+    vol5 = latest["VOL5"]
+    vol20 = latest["VOL20"]
+
+    ret5 = latest["RET5"]
+    ret20 = latest["RET20"]
+    high20 = latest["HIGH20"]
+
+    ma20_slope_5d = latest["MA20_SLOPE_5D"]
+
+    score = 0
+    details = []
+
+    # ==================================================
+    # 1. 技術趨勢：35 分
+    # ==================================================
+
+    trend_score = 0
+
+    if close > ma5:
+        trend_score += 5
+        details.append("股價站上 5 日均線，短線動能偏強")
+    else:
+        details.append("股價跌破 5 日均線，短線動能轉弱")
+
+    if close > ma10:
+        trend_score += 5
+        details.append("股價站上 10 日均線，短期趨勢偏多")
+    else:
+        details.append("股價跌破 10 日均線，短期趨勢需觀察")
+
+    if close > ma20:
+        trend_score += 8
+        details.append("股價站上 20 日均線，1 個月趨勢偏多")
+    else:
+        details.append("股價跌破 20 日均線，1 個月趨勢偏弱")
+
+    if close > ma60:
+        trend_score += 5
+        details.append("股價站上 60 日均線，中期支撐仍在")
+    else:
+        details.append("股價跌破 60 日均線，中期結構偏弱")
+
+    if ma5 > ma20:
+        trend_score += 6
+        details.append("5 日均線高於 20 日均線，短線均線結構偏多")
+    else:
+        details.append("5 日均線尚未高於 20 日均線，短線均線結構普通")
+
+    if pd.notna(ma20_slope_5d) and ma20_slope_5d > 0:
+        trend_score += 6
+        details.append("20 日均線近 5 日走升，短中期趨勢改善")
+    else:
+        details.append("20 日均線尚未明顯走升，短中期趨勢仍需確認")
+
+    score += trend_score
+
+    # ==================================================
+    # 2. 動能指標：20 分
+    # ==================================================
+
+    momentum_score = 0
+
+    if macd > signal:
+        momentum_score += 7
+        details.append("MACD 位於 Signal 之上，短中期動能偏多")
+    else:
+        details.append("MACD 低於 Signal，短中期動能偏弱")
+
+    if hist > 0:
+        momentum_score += 4
+        details.append("MACD 柱狀體為正，買盤動能仍在")
+    else:
+        details.append("MACD 柱狀體為負，動能尚未轉強")
+
+    if 50 <= rsi <= 70:
+        momentum_score += 5
+        details.append("RSI 位於 50 到 70，屬於健康偏強區間")
+    elif 70 < rsi <= 80:
+        momentum_score += 3
+        details.append("RSI 偏高，短線有過熱風險")
+    elif 40 <= rsi < 50:
+        momentum_score += 2
+        details.append("RSI 略低於強勢區，動能普通")
+    elif rsi > 80:
+        momentum_score += 1
+        details.append("RSI 過熱，追價風險提高")
+    else:
+        details.append("RSI 偏弱，短中期動能不足")
+
+    if 0 < ret20 <= 15:
+        momentum_score += 4
+        details.append("近 20 日漲幅為正且未明顯過熱，短中期表現健康")
+    elif 15 < ret20 <= 25:
+        momentum_score += 2
+        details.append("近 20 日漲幅偏大，需留意短線震盪")
+    elif ret20 > 25:
+        momentum_score += 1
+        details.append("近 20 日漲幅過大，短線追高風險提高")
+    else:
+        details.append("近 20 日漲幅為負，短中期動能偏弱")
+
+    score += momentum_score
+
+    # ==================================================
+    # 3. 量價結構：20 分
+    # ==================================================
+
+    volume_score = 0
+
+    if volume > vol20:
+        volume_score += 6
+        details.append("最新成交量高於 20 日均量，市場關注度提升")
+    else:
+        details.append("最新成交量低於 20 日均量，買盤力道較保守")
+
+    if vol5 > vol20:
+        volume_score += 5
+        details.append("5 日均量高於 20 日均量，短線量能增溫")
+    else:
+        details.append("5 日均量未高於 20 日均量，量能尚未明顯放大")
+
+    if ret5 > 0 and volume > vol20:
+        volume_score += 4
+        details.append("近 5 日股價上漲且成交量放大，價量配合偏多")
+    else:
+        details.append("近 5 日價量配合尚未明顯轉強")
+
+    if close >= high20 * 0.98 and volume > vol20:
+        volume_score += 5
+        details.append("股價接近或突破近 20 日高點，且量能放大，突破力道較佳")
+    elif close >= high20 * 0.98:
+        volume_score += 2
+        details.append("股價接近近 20 日高點，但量能尚未明顯放大")
+    else:
+        details.append("股價尚未接近近 20 日高點，突破訊號仍需觀察")
+
+    score += volume_score
+
+    # ==================================================
+    # 4. 風險控管：10 分
+    # ==================================================
+
+    risk_score = 0
+
+    distance_ma20 = ((close - ma20) / ma20) * 100
+
+    if 0 <= distance_ma20 <= 12:
+        risk_score += 4
+        details.append("股價高於 20 日均線但未過度乖離，追高風險相對可控")
+    elif distance_ma20 < 0:
+        details.append("股價低於 20 日均線，短中期支撐轉弱")
+    else:
+        details.append("股價明顯高於 20 日均線，短線乖離偏大")
+
+    if rsi <= 75:
+        risk_score += 3
+        details.append("RSI 未明顯過熱，短線風險尚可控")
+    else:
+        details.append("RSI 偏高，需留意短線拉回風險")
+
+    if close > ma20:
+        risk_score += 3
+        details.append("股價仍守在 20 日均線上方，短中期防線尚未跌破")
+    else:
+        details.append("股價跌破 20 日均線，短中期風險升高")
+
+    score += risk_score
+
+    return {
+        "score": min(round(score, 1), 85),
+        "trend_score": trend_score,
+        "momentum_score": momentum_score,
+        "volume_score": volume_score,
+        "risk_score": risk_score,
+        "details": details,
+        "latest": latest,
+        "distance_ma20": distance_ma20
+    }
+
+
+def score_short_term_institutional(inst_df):
+    """
+    短中期籌碼評分。
+    滿分 15 分。
+    """
+
+    clean_df = inst_df.copy()
+    clean_df = clean_df.dropna(subset=["total_net"], how="all")
+
+    if clean_df.empty:
+        return {
+            "score": 0,
+            "details": ["三大法人資料不足，無法分析短中期籌碼"],
+            "latest": None
+        }
+
+    latest = clean_df.iloc[-1]
+
+    score = 0
+    details = []
+
+    total_5d = latest.get("total_5d", np.nan)
+    total_20d = latest.get("total_20d", np.nan)
+    foreign_5d = latest.get("foreign_5d", np.nan)
+    investment_trust_5d = latest.get("investment_trust_5d", np.nan)
+    investment_trust_20d = latest.get("investment_trust_20d", np.nan)
+    total_positive_20d_count = latest.get("total_positive_20d_count", np.nan)
+
+    if pd.notna(total_5d) and total_5d > 0:
+        score += 5
+        details.append("近 5 日三大法人合計買超，短線籌碼偏多")
+    else:
+        details.append("近 5 日三大法人未明顯買超，短線籌碼支撐不足")
+
+    if pd.notna(total_20d) and total_20d > 0:
+        score += 3
+        details.append("近 20 日三大法人合計買超，1 個月籌碼偏多")
+    else:
+        details.append("近 20 日三大法人未明顯買超，1 個月籌碼需觀察")
+
+    if pd.notna(investment_trust_5d) and investment_trust_5d > 0:
+        score += 3
+        details.append("近 5 日投信買超，短中期波段籌碼加分")
+    else:
+        details.append("近 5 日投信未明顯買超，波段籌碼支撐普通")
+
+    if pd.notna(investment_trust_20d) and investment_trust_20d > 0:
+        score += 2
+        details.append("近 20 日投信買超，中期籌碼有支撐")
+    else:
+        details.append("近 20 日投信未明顯買超，中期籌碼仍需觀察")
+
+    if pd.notna(foreign_5d) and foreign_5d > 0:
+        score += 1
+        details.append("近 5 日外資買超，外資短線籌碼偏多")
+    else:
+        details.append("近 5 日外資未明顯買超，外資短線態度偏保守")
+
+    if pd.notna(total_positive_20d_count) and total_positive_20d_count >= 10:
+        score += 1
+        details.append("近 20 日法人買超天數約半數以上，籌碼穩定性尚可")
+    else:
+        details.append("近 20 日法人買超天數偏少，籌碼穩定性不足")
+
+    return {
+        "score": min(score, 15),
+        "details": details,
+        "latest": latest
+    }
+
+
+def build_short_term_report(result):
+    """
+    建立短中期 1 個月文字報告。
+    """
+
+    stock_id = result["stock_id"]
+    stock_name = result["stock_name"]
+    market = result["market"]
+    symbol = result["symbol"]
+    total_score = result["total_score"]
+    viewpoint = result["viewpoint"]
+    scores = result["scores"]
+    metrics = result["metrics"]
+    details = result["details"]
+    conclusion = result["conclusion"]
+    errors = result["errors"]
+
+    report = f"""
+==================================================
+台股短中期 AI 股票分析報告
+分析週期：1 個月
+==================================================
+
+股票代號：{symbol}
+股票名稱：{stock_name if stock_name else "無資料"}
+市場：{market_name_zh(market)}
+報告產生時間：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+--------------------------------------------------
+一、總分與短中期觀點
+--------------------------------------------------
+
+技術趨勢分數：{fmt_num(scores["trend"], 1)} / 35
+動能指標分數：{fmt_num(scores["momentum"], 1)} / 20
+量價結構分數：{fmt_num(scores["volume"], 1)} / 20
+籌碼面分數：{fmt_num(scores["institutional"], 1)} / 15
+風險控管分數：{fmt_num(scores["risk"], 1)} / 10
+
+短中期總分：{fmt_num(total_score, 1)} / 100
+短中期觀點：{viewpoint}
+
+--------------------------------------------------
+二、短中期技術與動能
+--------------------------------------------------
+
+目前收盤價：{fmt_num(metrics["close"])}
+5 日均線：{fmt_num(metrics["ma5"])}
+10 日均線：{fmt_num(metrics["ma10"])}
+20 日均線：{fmt_num(metrics["ma20"])}
+60 日均線：{fmt_num(metrics["ma60"])}
+RSI 14：{fmt_num(metrics["rsi"])}
+MACD：{fmt_num(metrics["macd"])}
+MACD Signal：{fmt_num(metrics["macd_signal"])}
+近 5 日漲跌幅：{fmt_pct(metrics["ret5"])}
+近 20 日漲跌幅：{fmt_pct(metrics["ret20"])}
+股價距離 20 日均線：{fmt_pct(metrics["distance_ma20"])}
+
+條件檢查：
+{details_to_text(details["price"])}
+
+--------------------------------------------------
+三、短中期籌碼
+--------------------------------------------------
+
+最新籌碼日期：{metrics["institutional_date"]}
+近 5 日三大法人合計：{fmt_int(metrics["institutional_total_5d"])}
+近 20 日三大法人合計：{fmt_int(metrics["institutional_total_20d"])}
+近 5 日外資合計：{fmt_int(metrics["foreign_5d"])}
+近 5 日投信合計：{fmt_int(metrics["investment_trust_5d"])}
+近 20 日投信合計：{fmt_int(metrics["investment_trust_20d"])}
+
+籌碼條件檢查：
+{details_to_text(details["institutional"])}
+
+--------------------------------------------------
+四、AI 短中期結論
+--------------------------------------------------
+
+{conclusion}
+
+觀察重點：
+1. 若股價持續站穩 20 日均線，短中期趨勢較有利。
+2. 若成交量高於 20 日均量，代表市場關注度提升。
+3. 若 MACD 維持多方且 RSI 未過熱，動能較健康。
+4. 若近 5 日與近 20 日法人持續買超，短中期籌碼較有支撐。
+5. 若跌破 20 日均線，需留意短中期轉弱風險。
+6. 若 RSI 過熱且股價遠離 20 日均線，需避免追高。
+
+風險提醒：
+本分析僅供研究參考，不構成任何投資建議。
+短中期分析波動較大，需搭配停損與風險控管。
+"""
+
+    if errors:
+        report += """
+
+--------------------------------------------------
+五、資料缺漏或錯誤提醒
+--------------------------------------------------
+"""
+
+        for key, value in errors.items():
+            report += f"\n- {key}：{value}"
+
+    report += """
+
+==================================================
+"""
+
+    return report
+
+
+def analyze_short_term_stock(stock_input):
+    """
+    短中期 1 個月股票分析主函數。
+    """
+
+    info = resolve_stock_input(stock_input)
+
+    stock_id = info["stock_id"]
+    stock_name = info["stock_name"]
+    market = info["market"]
+    symbol = format_tw_stock_code(stock_id)
+
+    errors = {}
+
+    price_df = None
+    institutional_df = None
+    raw_institutional_df = None
+
+    price_score = 0
+    trend_score = 0
+    momentum_score = 0
+    volume_score = 0
+    risk_score = 0
+    institutional_score = 0
+
+    price_details = ["短中期技術資料不足或分析失敗"]
+    institutional_details = ["短中期籌碼資料不足或分析失敗"]
+
+    latest_price = None
+    latest_institutional = None
+
+    distance_ma20 = np.nan
+
+    # 技術、動能、量價、風險
+    try:
+        symbol, price_df = fetch_stock_data(stock_id)
+        price_df = add_indicators(price_df)
+        price_df = add_short_term_indicators(price_df)
+
+        price_result = score_short_term_price(price_df)
+
+        price_score = price_result["score"]
+        trend_score = price_result["trend_score"]
+        momentum_score = price_result["momentum_score"]
+        volume_score = price_result["volume_score"]
+        risk_score = price_result["risk_score"]
+
+        price_details = price_result.get("details", [])
+        latest_price = price_result.get("latest")
+        distance_ma20 = price_result.get("distance_ma20", np.nan)
+
+    except Exception as e:
+        errors["短中期技術面"] = str(e)
+
+    # 籌碼
+    try:
+        institutional_df, raw_institutional_df = build_institutional_table(stock_id)
+        institutional_result = score_short_term_institutional(institutional_df)
+
+        institutional_score = institutional_result["score"]
+        institutional_details = institutional_result.get("details", [])
+        latest_institutional = institutional_result.get("latest")
+
+    except Exception as e:
+        errors["短中期籌碼"] = str(e)
+
+    total_score = round(price_score + institutional_score, 1)
+    viewpoint = get_short_term_viewpoint(total_score)
+    conclusion = get_short_term_conclusion(total_score)
+
+    metrics = {
+        "close": safe_get(latest_price, "Close"),
+        "ma5": safe_get(latest_price, "MA5"),
+        "ma10": safe_get(latest_price, "MA10"),
+        "ma20": safe_get(latest_price, "MA20"),
+        "ma60": safe_get(latest_price, "MA60"),
+        "rsi": safe_get(latest_price, "RSI14"),
+        "macd": safe_get(latest_price, "MACD"),
+        "macd_signal": safe_get(latest_price, "MACD_SIGNAL"),
+        "ret5": safe_get(latest_price, "RET5"),
+        "ret20": safe_get(latest_price, "RET20"),
+        "volume": safe_get(latest_price, "Volume"),
+        "vol5": safe_get(latest_price, "VOL5"),
+        "vol20": safe_get(latest_price, "VOL20"),
+        "distance_ma20": distance_ma20,
+
+        "institutional_date": (
+            safe_date_to_str(safe_get(latest_institutional, "date"), "%Y-%m-%d")
+            if latest_institutional is not None else "無資料"
+        ),
+        "institutional_total_5d": safe_get(latest_institutional, "total_5d"),
+        "institutional_total_20d": safe_get(latest_institutional, "total_20d"),
+        "foreign_5d": safe_get(latest_institutional, "foreign_5d"),
+        "investment_trust_5d": safe_get(latest_institutional, "investment_trust_5d"),
+        "investment_trust_20d": safe_get(latest_institutional, "investment_trust_20d"),
+    }
+
+    result = {
+        "mode": "short_term_1m",
+        "stock_id": stock_id,
+        "stock_name": stock_name,
+        "market": market,
+        "symbol": symbol,
+        "total_score": total_score,
+        "viewpoint": viewpoint,
+        "conclusion": conclusion,
+        "scores": {
+            "trend": trend_score,
+            "momentum": momentum_score,
+            "volume": volume_score,
+            "risk": risk_score,
+            "institutional": institutional_score,
+            "price_total": price_score,
+        },
+        "metrics": metrics,
+        "details": {
+            "price": price_details,
+            "institutional": institutional_details,
+        },
+        "errors": errors,
+        "data": {
+            "price_df": price_df,
+            "institutional_df": institutional_df,
+            "raw_institutional_df": raw_institutional_df,
+        }
+    }
+
+    result["report"] = build_short_term_report(result)
+
+    return result
+
+
+# 短中期分析別名
+def analyze_short(stock_input):
+    return analyze_short_term_stock(stock_input)
